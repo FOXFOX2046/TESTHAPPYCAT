@@ -2,6 +2,10 @@
 
 Streamlit app for AGS/CSV geotechnical processing, SPT plotting, and strip log generation.
 
+## Live app
+
+- https://testhappycat-2046.streamlit.app/
+
 ## What it does
 
 - Parse AGS groups and CSV inputs
