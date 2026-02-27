@@ -1,0 +1,21 @@
+"**LOCA"
+"*","*","*","*"
+"LOCA_ID","LOCA_TYPE","LOCA_NATE","LOCA_NATN","LOCA_GL","LOCA_FDEP"
+"*","*","*","*","*","*"
+"BH1","RC",100,200,5.5,20
+"BH2","RC",105,205,4.2,18
+"**GEOL"
+"*","*","*","*"
+"LOCA_ID","GEOL_TOP","GEOL_BASE","GEOL_DESC"
+"BH1",0,3,"Silty CLAY (FILL)"
+"BH1",3,8,"Completely decomposed GRANITE (CDG)"
+"BH1",8,15,"Highly decomposed TUFF (HDT)"
+"BH1",15,20,"CORESTONE"
+"BH2",0,2,"Fill and rubble"
+"BH2",2,10,"Moderately decomposed ANDESITE (MDI)"
+"**ISPT"
+"*","*","*","*"
+"LOCA_ID","ISPT_DPTH","ISPT_PENTHK","ISPT_N"
+"BH1",5,300,25
+"BH1",10,450,200
+"BH2",5,300,15
