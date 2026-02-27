@@ -1,0 +1,3 @@
+# FoxGI performance tweaks
+[browser]
+gatherUsageStats = false

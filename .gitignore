@@ -1,0 +1,23 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# Test cache
+.pytest_cache/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+
+# Generated local artifacts
+test_out.html
+test_static.png
+test_striplog.html
+test_striplog_minimal.html
+test_striplog_out.html
+
+# Optional local outputs
+*.log
