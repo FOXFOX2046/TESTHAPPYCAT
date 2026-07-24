@@ -1,4 +1,6 @@
-"""Test AGS parser: <CONT> concatenation and quote-safe CSV."""
+"""Test AGS parser: <CONT> concatenation, quote-safe CSV, and AGS 4 records."""
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -38,3 +40,24 @@ def test_cont_append_correct_columns():
     assert df.iloc[0]["A"] == "v1a"
     assert df.iloc[0]["B"] == "v2b"
     assert df.iloc[0]["C"] == "v3c"
+
+
+def test_parse_ags4_group_heading_and_data_records():
+    text = '''"GROUP","GEOL"
+"HEADING","LOCA_ID","GEOL_TOP"
+"DATA","BH1","1.20"
+'''
+
+    groups = parse_ags_text(text)
+
+    assert groups["GEOL"].to_dict("records") == [
+        {"LOCA_ID": "BH1", "GEOL_TOP": "1.20"}
+    ]
+
+
+def test_parse_uploaded_ags4_file_finds_required_groups():
+    path = Path(__file__).parents[2] / "No. 1 Selkirk Road.ags"
+
+    groups = parse_ags_text(path.read_text(encoding="utf-8"))
+
+    assert {"GEOL", "LOCA", "ISPT"}.issubset(groups)

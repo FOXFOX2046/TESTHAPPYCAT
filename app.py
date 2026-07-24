@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 import inspect
+import html
 import json
 import re
 import time
@@ -12,6 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 def _natural_sort_key(s: str):
@@ -23,6 +25,108 @@ def _safe_key(s: str) -> str:
     """Convert free text to a stable Streamlit key suffix."""
     k = re.sub(r"[^0-9A-Za-z_]+", "_", str(s)).strip("_").lower()
     return k or "item"
+
+
+BROWSER_MEMORY_KEY = "foxgi_browser_memory_v1"
+BROWSER_MEMORY_QUERY = "foxgi_restore"
+
+
+def _get_query_value(name: str) -> str:
+    value = st.query_params.get(name, "")
+    if isinstance(value, list):
+        return str(value[0]) if value else ""
+    return str(value or "")
+
+
+def _browser_memory_restore_component():
+    components.html(
+        f"""
+        <script>
+        (() => {{
+          const key = {json.dumps(BROWSER_MEMORY_KEY)};
+          const param = {json.dumps(BROWSER_MEMORY_QUERY)};
+          const storage = (() => {{
+            try {{ return window.parent.localStorage; }} catch (e) {{ return window.localStorage; }}
+          }})();
+          const params = new URLSearchParams(window.parent.location.search);
+          if (params.has(param)) return;
+          const saved = storage.getItem(key);
+          if (!saved) return;
+          if (saved.length > 150000) return;
+          params.set(param, saved);
+          window.parent.location.search = params.toString();
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def _browser_memory_save_component(payload: dict):
+    data = json.dumps(payload, ensure_ascii=False)
+    components.html(
+        f"""
+        <script>
+        (() => {{
+          const key = {json.dumps(BROWSER_MEMORY_KEY)};
+          const data = {json.dumps(data)};
+          const storage = (() => {{
+            try {{ return window.parent.localStorage; }} catch (e) {{ return window.localStorage; }}
+          }})();
+          storage.setItem(key, data);
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def _browser_memory_clear_component():
+    components.html(
+        f"""
+        <script>
+        (() => {{
+          const key = {json.dumps(BROWSER_MEMORY_KEY)};
+          const param = {json.dumps(BROWSER_MEMORY_QUERY)};
+          const storage = (() => {{
+            try {{ return window.parent.localStorage; }} catch (e) {{ return window.localStorage; }}
+          }})();
+          storage.removeItem(key);
+          const url = new URL(window.parent.location.href);
+          url.searchParams.delete(param);
+          window.parent.history.replaceState(null, "", url.toString());
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def _read_browser_memory() -> dict | None:
+    raw = _get_query_value(BROWSER_MEMORY_QUERY)
+    if not raw:
+        return None
+    try:
+        memory = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(memory, dict):
+        return None
+    files = memory.get("files")
+    if not isinstance(files, list):
+        return None
+    valid_files = []
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        text = str(item.get("text", ""))
+        if name and text:
+            valid_files.append({"name": name, "text": text})
+    if not valid_files:
+        return None
+    memory["files"] = valid_files
+    return memory
 
 
 def _parse_bounds_zones(text: str, default_bin_size: float) -> tuple[list[tuple[float, float, float]], list[str]]:
@@ -102,6 +206,8 @@ def _pages_png_to_pdf_bytes(page_pngs: list[tuple[bytes, str]]) -> bytes:
 
 # Core imports
 from core.ags_parser import parse_ags_text
+from core.ags_metadata import extract_ags_metadata
+from core.filters import apply_text_filter
 from core.merge_layers import merge_adjacent_layers
 from core.normalization import normalize_layers
 from core.reporting import build_summary_report
@@ -186,7 +292,7 @@ def _run_pipeline_impl(
     groups = {k: pd.concat(v, ignore_index=True) for k, v in all_groups.items()}
 
     if "GEOL" not in groups or groups["GEOL"].empty:
-        return None, None, None, None, None, "No GEOL data found."
+        return None, None, None, None, None, "No GEOL data found.", groups
 
     geol = groups["GEOL"]
     col = lambda df, *keys: _def_col(df, *keys)
@@ -296,6 +402,8 @@ if _logo_path.exists():
     except Exception:
         st.sidebar.image(str(_logo_path), use_container_width=True)
 st.sidebar.title("FoxGI WebApp")
+_browser_memory_restore_component()
+browser_memory = _read_browser_memory()
 uploaded = st.sidebar.file_uploader("Upload AGS/CSV", type=["ags", "csv"], accept_multiple_files=True)
 
 # Sample: Sample/11 0210 03 R002.ags (Yuen Long AGS)
@@ -303,13 +411,30 @@ _sample_path = Path(__file__).parent / "Sample" / "11 0210 03 R002.ags"
 if _sample_path.exists():
     st.sidebar.caption("Sample: Sample/11 0210 03 R002.ags")
 
-mode = st.sidebar.radio("Mode", ["AGS", "CSV"])
+mode_options = ["AGS", "CSV"]
+remembered_mode = str(browser_memory.get("mode", "AGS")) if browser_memory else "AGS"
+mode = st.sidebar.radio(
+    "Mode",
+    mode_options,
+    index=mode_options.index(remembered_mode) if remembered_mode in mode_options else 0,
+)
 fill_subtype = st.sidebar.checkbox("FILL with subtype (e.g. FILL (SAND))", value=False)
 spt_level_mode = st.sidebar.radio(
     "SPT N-value Level",
     ["TOP", "SEAT"],
     help="TOP = GL − Depth_Top;  SEAT = TOP Level − Penetration/1000",
 )
+
+recovered_files = tuple(
+    (item["name"], item["text"])
+    for item in browser_memory.get("files", [])
+) if browser_memory and not uploaded else tuple()
+if recovered_files:
+    st.sidebar.success(
+        "Recovered browser file(s): "
+        + ", ".join(name for name, _ in recovered_files)
+    )
+    st.sidebar.caption("Stored in this browser. Use Clear browser cache to remove.")
 
 # AGS input tab (sidebar) dark background.
 if mode == "AGS":
@@ -460,6 +585,10 @@ restart = st.sidebar.button(
     type="primary",
     help="Clear cache and reset. Upload files and Run again.",
 )
+clear_browser_cache = st.sidebar.button(
+    "Clear browser cache",
+    help="Remove remembered browser files/settings and clear this session cache.",
+)
 
 # Persist pipeline results so color picker / filter changes don't require re-run
 if "pipeline_data" not in st.session_state:
@@ -468,8 +597,11 @@ if "pipeline_files" not in st.session_state:
     st.session_state.pipeline_files = None
 
 # Run pipeline when Run clicked (with % progress and ETA)
-if run and uploaded:
-    files_data = tuple((up.name, up.read().decode("utf-8", errors="replace")) for up in uploaded)
+if run and (uploaded or recovered_files):
+    if uploaded:
+        files_data = tuple((up.name, up.read().decode("utf-8", errors="replace")) for up in uploaded)
+    else:
+        files_data = recovered_files
     cache_key = (tuple((n, t) for n, t in files_data), mode)
     if "_pipe_cache" not in st.session_state:
         st.session_state._pipe_cache = {}
@@ -501,23 +633,37 @@ if run and uploaded:
 
     if layers is not None:
         st.session_state.pipeline_data = (layers, merged, spt_df, gl_df, val, report, groups)
-        st.session_state.pipeline_files = tuple(f.name for f in uploaded)
+        st.session_state.pipeline_files = tuple(name for name, _ in files_data)
+        _browser_memory_save_component({
+            "version": 1,
+            "mode": mode,
+            "saved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "files": [{"name": name, "text": text} for name, text in files_data],
+        })
     else:
         st.session_state.pipeline_data = None
         st.error(report or "Processing failed.")
 
 # Restart: clear cached data and color picks
-if restart:
+if restart or clear_browser_cache:
     st.session_state.pipeline_data = None
     st.session_state.pipeline_files = None
     if "_pipe_cache" in st.session_state:
         del st.session_state["_pipe_cache"]
     if "striplog_colors" in st.session_state:
         del st.session_state["striplog_colors"]
+    if clear_browser_cache:
+        _browser_memory_clear_component()
+        st.query_params.clear()
+        st.success("Browser cache cleared.")
 
 # Clear cache if files changed or removed
 if uploaded:
     current_files = tuple(f.name for f in uploaded)
+    if st.session_state.pipeline_files != current_files:
+        st.session_state.pipeline_data = None
+elif recovered_files:
+    current_files = tuple(name for name, _ in recovered_files)
     if st.session_state.pipeline_files != current_files:
         st.session_state.pipeline_data = None
 else:
@@ -538,9 +684,9 @@ if st.session_state.pipeline_data is not None:
             return df
         d = df.copy()
         if filter_bh and "Borehole_ID" in d.columns:
-            d = d[d["Borehole_ID"].astype(str).str.contains(filter_bh, case=False, na=False)]
+            d = apply_text_filter(d, "Borehole_ID", filter_bh)
         if filter_code and "Normalized_Code" in d.columns:
-            d = d[d["Normalized_Code"].astype(str).str.contains(filter_code, case=False, na=False)]
+            d = apply_text_filter(d, "Normalized_Code", filter_code)
         if is_layer and "Depth_From" in d.columns and "Depth_To" in d.columns:
             if filter_depth_min is not None:
                 d = d[d["Depth_To"] > filter_depth_min]
@@ -1711,11 +1857,22 @@ if st.session_state.pipeline_data is not None:
 
     elif tab_choice == "Validation":
         err_df, warn_df = val
+        ags_meta = extract_ags_metadata(groups)
+        st.subheader("AGS Metadata")
+        st.dataframe(
+            pd.DataFrame([{"field": k, "value": v} for k, v in ags_meta.items()]),
+            use_container_width=True,
+            hide_index=True,
+        )
         st.subheader("Errors")
         st.dataframe(err_df, use_container_width=True)
         st.subheader("Warnings")
         st.dataframe(warn_df, use_container_width=True)
-        val_json = json.dumps({"errors": err_df.to_dict("records"), "warnings": warn_df.to_dict("records")})
+        val_json = json.dumps({
+            "metadata": ags_meta,
+            "errors": err_df.to_dict("records"),
+            "warnings": warn_df.to_dict("records"),
+        })
         st.download_button("Download validation.json", val_json.encode(), f"{file_prefix}_validation.json", "application/json")
 
     elif tab_choice == "Summary":
@@ -1750,11 +1907,15 @@ if st.session_state.pipeline_data is not None:
             pref_cols = st.columns(min(4, max(1, len(colors_for_chart))))
             for i, code in enumerate(sorted(colors_for_chart.keys(), key=str.upper)):
                 color_val = str(colors_for_chart.get(code, "#888888"))
+                safe_code = html.escape(str(code))
+                safe_color = html.escape(color_val)
                 with pref_cols[i % len(pref_cols)]:
                     st.markdown(
-                        f"<div style='display:flex;align-items:center;gap:8px;margin:2px 0;'>"
-                        f"<span style='display:inline-block;width:14px;height:14px;border:1px solid #999;background:{color_val};'></span>"
-                        f"<span><b>{code}</b> {color_val}</span>"
+                        f"<div style='display:flex;align-items:flex-start;gap:8px;margin:6px 0;min-width:0;'>"
+                        f"<span style='display:inline-block;width:14px;height:14px;min-width:14px;margin-top:3px;border:1px solid #999;background:{safe_color};'></span>"
+                        f"<span style='min-width:0;overflow-wrap:anywhere;line-height:1.25;'>"
+                        f"<b>{safe_code}</b><br><span style='opacity:.85;'>{safe_color}</span>"
+                        f"</span>"
                         f"</div>",
                         unsafe_allow_html=True,
                     )

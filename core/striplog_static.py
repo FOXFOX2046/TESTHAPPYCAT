@@ -19,6 +19,14 @@ from matplotlib.patches import Rectangle, Polygon
 from core.plots_striplog import build_color_map
 
 
+def _legend_label(value: object, max_chars: int) -> str:
+    """Keep generated legend labels inside the static PNG legend area."""
+    text = str(value).strip()
+    if len(text) <= max_chars:
+        return text
+    return text[: max(0, max_chars - 3)].rstrip("_ -") + "..."
+
+
 def _col(df: pd.DataFrame, keywords: list[str]) -> str | None:
     for c in df.columns:
         for kw in keywords:
@@ -37,7 +45,7 @@ def _resolve_adaptive_params(n_bh: int) -> dict:
             bnd_decimals=2, bnd_min_gap_m=1.5, bnd_max=12,
             bnd_right=10, spt_format="N={n} @ {lev}",
             header_max_chars=99, tri_size=3,
-            left_panel=250, legend_font=8,
+            left_panel=340, legend_font=8,
         )
     elif n_bh <= 15:
         return dict(
@@ -47,7 +55,7 @@ def _resolve_adaptive_params(n_bh: int) -> dict:
             bnd_decimals=2, bnd_min_gap_m=2.5, bnd_max=8,
             bnd_right=12, spt_format="N={n}@{lev}",
             header_max_chars=16, tri_size=3,
-            left_panel=220, legend_font=7,
+            left_panel=320, legend_font=7,
         )
     else:
         return dict(
@@ -57,7 +65,7 @@ def _resolve_adaptive_params(n_bh: int) -> dict:
             bnd_decimals=1, bnd_min_gap_m=4.0, bnd_max=6,
             bnd_right=8, spt_format="N={n}@{lev}",
             header_max_chars=12, tri_size=2,
-            left_panel=180, legend_font=6,
+            left_panel=280, legend_font=6,
         )
 
 
@@ -168,7 +176,7 @@ def render_striplog_png(
         rect = Rectangle((leg_x - 60, y_row - swatch // 2), swatch, swatch,
                           facecolor=colors.get(c, "#888"), edgecolor="k", linewidth=0.4)
         ax.add_patch(rect)
-        ax.text(leg_x - 45, y_row, c, fontsize=lfs - 1, ha="left", va="center")
+        ax.text(leg_x - 45, y_row, _legend_label(c, 16), fontsize=lfs - 1, ha="left", va="center")
 
     # --- Boreholes ---
     def _fmt_level(lev: float) -> str:
@@ -442,18 +450,34 @@ def render_striplog_a3_png(
     ax.text(5, 12, f"Top Level: {top_level:.2f} mPD    Bottom Level: {bottom_level:.2f} mPD",
             fontsize=6, ha="left", va="top", color="#333")
 
-    # Legend: above soil stick (horizontal layout), with gap below Top Level
-    leg_y = 22
-    ax.text(5, leg_y - 6, "Soil Legend:", fontsize=6, ha="left", va="top", fontweight="bold")
-    max_legend = min(16, len(codes))
+    # Legend: compact multi-row table in the top band.
+    leg_x0 = 5
+    leg_y0 = 22
+    leg_row_h = 5.0
+    leg_col_w = 86.0
+    leg_cols = max(1, min(4, int((A3_WIDTH_MM - 2 * leg_x0) // leg_col_w)))
+    leg_label_chars = 30
+    ax.text(leg_x0, leg_y0 - 5, "Soil Legend:", fontsize=6, ha="left", va="top", fontweight="bold")
+    max_rows = max(1, int((TOP_MARGIN_MM - leg_y0 - 2) // leg_row_h))
+    max_legend = min(len(codes), max_rows * leg_cols)
     for i, code in enumerate(codes[:max_legend]):
-        x_leg = 5 + i * 22
-        rect = Rectangle((x_leg, leg_y - 3), 3, 3,
-                          facecolor=colors.get(str(code).strip(), "#888"),
+        row = i // leg_cols
+        col = i % leg_cols
+        x_leg = leg_x0 + col * leg_col_w
+        y_leg = leg_y0 + row * leg_row_h
+        c = str(code).strip()
+        rect = Rectangle((x_leg, y_leg - 2.6), 3, 3,
+                          facecolor=colors.get(c, "#888"),
                           edgecolor="k", linewidth=0.2)
         ax.add_patch(rect)
-        ax.text(x_leg + 4, leg_y - 1.5, str(code).strip(),
-                fontsize=5, ha="left", va="center")
+        ax.text(x_leg + 4, y_leg - 1.1, _legend_label(c, leg_label_chars),
+                fontsize=4.5, ha="left", va="center")
+    if len(codes) > max_legend:
+        row = max_rows - 1
+        x_leg = leg_x0 + (leg_cols - 1) * leg_col_w
+        y_leg = leg_y0 + row * leg_row_h
+        ax.text(x_leg + 4, y_leg + 2.4, f"+{len(codes) - max_legend} more",
+                fontsize=4.5, ha="left", va="center", color="#555")
 
     def _fmt(lev: float) -> str:
         return f"{lev:+.2f}" if lev >= 0 else f"{lev:.2f}"

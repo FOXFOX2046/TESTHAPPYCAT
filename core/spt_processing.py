@@ -49,7 +49,7 @@ def extract_spt(groups: dict[str, pd.DataFrame]) -> pd.DataFrame:
             # Fallback: parse N from ISPT_REP e.g. "(1,1,1,1,2,3) N=7"
             rep_text = str(r.get(rep_col, "")) if rep_col else str(r.to_dict())
             n_raw = _parse_n_from_text(rep_text)
-        penetration = r.get(pen_col, 300) if pen_col else 300
+        penetration = r.get(pen_col, None) if pen_col else None
 
         n_eff, flag = _clean_n(n_raw, penetration, str(r.to_dict()))
         # When UNPARSED, try n_raw as int if it looks numeric
@@ -67,7 +67,7 @@ def extract_spt(groups: dict[str, pd.DataFrame]) -> pd.DataFrame:
         try:
             pen_mm = float(penetration)
         except (ValueError, TypeError):
-            pen_mm = 0
+            pen_mm = float("nan")
         rows.append({
             "Borehole_ID": bh,
             "Depth": depth,

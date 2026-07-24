@@ -23,6 +23,43 @@ def safe_csv_split(line: str) -> list[str]:
     return list(row)
 
 
+def parse_ags4_text(text: str) -> dict[str, pd.DataFrame]:
+    """Parse AGS 4 ``GROUP``/``HEADING``/``DATA`` records into DataFrames."""
+    groups: dict[str, pd.DataFrame] = {}
+    active_group: str | None = None
+    headers: list[str] = []
+    rows: list[list[str]] = []
+
+    def save_group() -> None:
+        if active_group and headers:
+            groups[active_group] = pd.DataFrame(rows, columns=headers)
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        parts = safe_csv_split(line)
+        if not parts:
+            continue
+
+        record = str(parts[0]).strip().upper()
+        if record == "GROUP":
+            save_group()
+            active_group = str(parts[1]).strip() if len(parts) > 1 else ""
+            headers = []
+            rows = []
+        elif record == "HEADING" and active_group:
+            headers = [str(value).strip().lstrip("*") for value in parts[1:]]
+        elif record == "DATA" and active_group and headers:
+            rows.append([
+                str(parts[index]).replace('"', "").strip() if index < len(parts) else ""
+                for index in range(1, len(headers) + 1)
+            ])
+
+    save_group()
+    return groups
+
+
 def parse_ags_text(text: str) -> dict[str, pd.DataFrame]:
     """
     Parse AGS text content into group DataFrames.
@@ -30,6 +67,13 @@ def parse_ags_text(text: str) -> dict[str, pd.DataFrame]:
     - Ignore lines beginning with "*" (single) and <UNITS>
     - <CONT>: first field "<CONT>" appends to previous row
     """
+    if any(
+        safe_csv_split(line.strip())[:1] == ["GROUP"]
+        for line in text.splitlines()
+        if line.strip()
+    ):
+        return parse_ags4_text(text)
+
     groups: dict[str, pd.DataFrame] = {}
     active_group: str | None = None
     headers: list[str] = []
@@ -65,7 +109,10 @@ def parse_ags_text(text: str) -> dict[str, pd.DataFrame]:
 
         # Skip only <UNITS> rows (AGS 4.0 uses *FIELD_NAME as headers - don't skip those)
         parts = safe_csv_split(line)
-        if parts and str(parts[0]).strip().upper() == "<UNITS>":
+        if parts and (
+            str(parts[0]).strip().upper() == "<UNITS>"
+            or all(str(part).strip() == "*" for part in parts if str(part).strip())
+        ):
             continue
 
         if active_group is None:
@@ -78,10 +125,11 @@ def parse_ags_text(text: str) -> dict[str, pd.DataFrame]:
         if parts and str(parts[0]).strip().upper() == "<CONT>":
             if prev_row is not None:
                 for i in range(len(prev_row)):
-                    if i >= len(parts):
+                    part_index = i + 1
+                    if part_index >= len(parts):
                         break
-                    cont_val = str(parts[i]) if parts[i] else ""
-                    if i == 0 or not cont_val:
+                    cont_val = str(parts[part_index]) if parts[part_index] else ""
+                    if not cont_val:
                         continue
                     prev_row[i] = (str(prev_row[i]) if prev_row[i] else "") + cont_val
             continue

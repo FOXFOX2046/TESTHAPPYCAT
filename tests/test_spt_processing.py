@@ -28,3 +28,24 @@ def test_normal_n():
     n, flag = _clean_n(25, 450, "")
     assert n == 25
     assert flag == ""
+
+
+def test_missing_penetration_does_not_force_n200():
+    groups = {
+        "ISPT": pd.DataFrame(
+            [
+                {
+                    "LOCA_ID": "BH1",
+                    "ISPT_TOP": "3.10",
+                    "ISPT_NVAL": "16",
+                    "ISPT_TYPE": "N",
+                }
+            ]
+        )
+    }
+
+    out = extract_spt(groups)
+
+    assert out.loc[0, "N_raw"] == "16"
+    assert out.loc[0, "N_effective"] == 16
+    assert out.loc[0, "Flag"] == ""
