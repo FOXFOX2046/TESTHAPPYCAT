@@ -119,16 +119,14 @@ def parse_ags_text(text: str) -> dict[str, pd.DataFrame]:
             continue
 
         # <CONT> continuation: append to previous row.
-        # AGS CONT lines have the same field layout as data lines;
-        # parts[0] = "<CONT>" sits in the HOLE_ID position, and
-        # parts[1..N] correspond to the remaining columns 1..N.
+        # Field 0 is the <CONT> marker.  Continuation values retain their
+        # original field indexes, so field 1 appends to column 1, etc.
         if parts and str(parts[0]).strip().upper() == "<CONT>":
             if prev_row is not None:
-                for i in range(len(prev_row)):
-                    part_index = i + 1
-                    if part_index >= len(parts):
+                for i in range(1, len(prev_row)):
+                    if i >= len(parts):
                         break
-                    cont_val = str(parts[part_index]) if parts[part_index] else ""
+                    cont_val = str(parts[i]) if parts[i] else ""
                     if not cont_val:
                         continue
                     prev_row[i] = (str(prev_row[i]) if prev_row[i] else "") + cont_val

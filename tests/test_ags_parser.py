@@ -23,8 +23,9 @@ def test_cont_concatenation():
     assert "GEOL" in groups
     df = groups["GEOL"]
     assert len(df) == 1
-    assert df.iloc[0]["A"] == "x more"
-    assert df.iloc[0]["B"] == "1 text"
+    assert df.iloc[0]["A"] == "x"
+    assert df.iloc[0]["B"] == "1 more"
+    assert df.iloc[0]["C"] == "2 text"
 
 
 def test_cont_append_correct_columns():
@@ -36,10 +37,26 @@ def test_cont_append_correct_columns():
     groups = parse_ags_text(text)
     df = groups["GEOL"]
     assert len(df) == 1
-    # CONT appends: col0+=parts[1]=a, col1+=parts[2]=b, col2+=parts[3]=c
-    assert df.iloc[0]["A"] == "v1a"
-    assert df.iloc[0]["B"] == "v2b"
-    assert df.iloc[0]["C"] == "v3c"
+    # CONT field 0 is a marker; fields 1..N append at their original indexes.
+    assert df.iloc[0]["A"] == "v1"
+    assert df.iloc[0]["B"] == "v2a"
+    assert df.iloc[0]["C"] == "v3b"
+
+
+def test_cont_preserves_geol_depth_fields_and_appends_description_and_legend():
+    text = '''"**GEOL"
+"HOLE_ID","GEOL_TOP","GEOL_BASE","Description","GEOL_LEG"
+"BH10","17.55","36.65","Sand","S"
+"<CONT>","",""," with gravel"," and cobbles"
+'''
+
+    df = parse_ags_text(text)["GEOL"]
+
+    assert df.iloc[0]["HOLE_ID"] == "BH10"
+    assert df.iloc[0]["GEOL_TOP"] == "17.55"
+    assert df.iloc[0]["GEOL_BASE"] == "36.65"
+    assert df.iloc[0]["Description"] == "Sand with gravel"
+    assert df.iloc[0]["GEOL_LEG"] == "S and cobbles"
 
 
 def test_parse_ags4_group_heading_and_data_records():
